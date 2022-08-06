@@ -9,29 +9,37 @@ from scipy.spatial.distance import euclidean
 class TSP(gym.Env):
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
 
-    def __init__(self, size=15):
+    def __init__(self, size=6):
         self.size = size
-        self.window_size = 512  # The size of the PyGame window
-
-        self.graph = self.graph_gen()
-        self.a_matrix = nx.to_numpy_array(self.graph) #Матрица смежности, веса отвечают расстоянию
-        self.dynamical_a_matrix = np.zeros((self.size,self.size)) #Тоже самое, но веса динамически меняются
-        self.observation_space = spaces.Dict(
-            {
-                "adjacency": self.a_matrix + self.dynamical_a_matrix,
-                "path": spaces.Discrete(self.size),
-            }
-        )
-
+        
+        self.observation_space = spaces.Box(low = np.ones((self.size,self.size)), 
+                                            high = np.ones((self.size,self.size))*100,
+                                            )
+        
+        self.mult = np.ones((self.size, self.size)) - np.eye(self.size)
+        self.adjacency_matrix = self.observation_space.sample()*self.mult
+        
+        
         self.path_graph = nx.turan_graph(self.size, 1)
-        self._agent_location = 0;
-        self._target_location = 0;
-
+        self.poss = nx.spring_layout(self.path_graph.nodes)
+        
         self.action_space = spaces.Discrete(self.size)
 
-        self.window = None
-        self.clock = None
-
+        self.coeff = -10**8
+        self.possible_action = [1 for i in range(self.size)]
+        self.possible_action[0] = self.coeff
+        
+        self.path = [0]
+        
+    def action_map(self, action):
+#        if action in self.possible_action:
+#            idx = self.possible_action.index(action)
+#            del self.possible_action[idx]
+#            return action
+#        else:
+            
+        return action
+        
     def graph_gen(self):
         G = nx.complete_graph(self.size)
 
@@ -47,48 +55,50 @@ class TSP(gym.Env):
         return self.a_matrix
 
     def _get_obs(self):
-        return {"agent": self._agent_location, "target": self._target_location}
+        return {"adjacency_matrix": self.adjacency_matrix.flatten(), "mask": torch.tensor(self.possible_action)}
 
-    def _get_info(self):
-        return {"distance": self.observation_space['adjacency'][self._agent_location][self._target_location]}
+    def _get_info(self, action):
+        return {"distance": self.adjacency_matrix[self.path[-1]][action]}
 
     def reset(self, seed=None, return_info=False, options=None):
         super().reset(seed=seed)
 
-        self._agent_location = 0
-
-        self._target_location = self._agent_location
-
+        self.path = [0]
+        self.possible_action = [1 for i in range(self.size)]
+        self.possible_action[0] = self.coeff
+        
+        self.path_graph = nx.turan_graph(self.size, 1)
+        self.adjacency_matrix = self.observation_space.sample()*self.mult
+        
         observation = self._get_obs()
-        info = self._get_info()
+        info = self._get_info(0)
         return (observation, info) if return_info else observation
 
     def step(self, action):
 
-        done = True if self.observation_space['path'].size() == (self.size*(self.size + 1)/2) else False
+        reward = 0
+        action = self.action_map(action)
 
-        self._target_location = action
+        self.path_graph.add_edge(self.path[-1], action)
 
-        self.path_graph.add_edge(self._agent_location, self._target_location)
-        self.observation_space['path'][action] = np.max(self.observation_space['path']) + 1
-
-        reward = -self.observation_space['adjacency'][self._agent_location][self._target_location]
-
-        self._agent_location = action
         observation = self._get_obs()
-        info = self._get_info()
+        info = self._get_info(action)
+        
+        self.possible_action[action] = self.coeff
 
+        reward = reward - self.adjacency_matrix[self.path[-1]][action]
+        
+        done = True if np.sum(self.possible_action) <= self.coeff*self.size else False
+        self.path.append(action)
+        
         return observation, reward, done, info
 
     def render(self, mode="human"):
 
         if mode == "human":
-            nx.draw(self.path_graph, pos=nx.spring_layout(self.path_graph.nodes))
-        else:  # rgb_array
+            nx.draw(self.path_graph, pos=self.poss)
+        else:
             return nx.to_numpy_array(self.path_graph)
 
     def close(self):
-        if self.window is not None:
-            pygame.display.quit()
-            pygame.quit()
-
+        return
