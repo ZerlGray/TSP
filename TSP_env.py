@@ -80,9 +80,6 @@ class TSP(gym.Env):
         action = self.action_map(action)
 
         self.path_graph.add_edge(self.path[-1], action)
-
-        observation = self._get_obs()
-        info = self._get_info(action)
         
         self.possible_action[action] = self.coeff
 
@@ -90,6 +87,9 @@ class TSP(gym.Env):
         
         done = True if np.sum(self.possible_action) <= self.coeff*self.size else False
         self.path.append(action)
+        
+        observation = self._get_obs()
+        info = self._get_info(action)
         
         return observation, reward, done, info
 
